@@ -38,12 +38,48 @@ type DFA NFA
 // NFA converts a regular expression to it's NFA
 // equivalent.
 func (r Regex) NFA() (nfa NFA, err error) {
+	nfa = NFA{
+		Transitions: [][][]rune{[][]rune{[]rune{}}},
+	}
+
 	symbols, err := symbols(r)
 	if err != nil {
 		return nfa, err
 	}
 
-	if () {}
+	if len(symbols) == 1 {
+		symbol := symbols[0]
+		if symbol.Type != CHAR {
+			return nfa, errors.New("Single non-char regex")
+		}
+
+		nfa.Out = []rune(symbol.Value)[0]
+
+		return nfa, nil
+	}
+
+	a, err := Regex(symbols[0].Value).NFA()
+	if err != nil {
+		return nfa, err
+	}
+
+	b, err := Regex(symbols[1].Value).NFA()
+	if err != nil {
+		return nfa, err
+	}
+
+	switch symbols[1].Type {
+	case CHAR, ANYOF, GROUP, RANGE:
+		// a -> b ->
+		nfa = a.Append(b)
+	case OR:
+		//      a
+		// 0 -<   >- 0 ->
+		//	    b
+		// TODO
+	case QUANTITY:
+		// TODO
+	}
 
 	return nfa, err
 }
@@ -153,4 +189,45 @@ func inParens(str []rune) (length int, err error) {
 	}
 
 	return length - 2, nil
+}
+
+// Append appends a NFA 'b' to a NFA 'a'.
+// a -> b ->
+func (a NFA) Append(b NFA) (c NFA) {
+	// make an empty graph of the right size
+	asize := len(a.Transitions)
+	bsize := len(b.Transitions)
+	csize := asize + bsize
+	c = NFA{
+		Transitions: make([][][]rune, csize),
+		Out:         '\x00',
+	}
+	for i, _ := range c.Transitions {
+		c.Transitions[i] = make([][]rune, csize)
+	}
+
+	// copy in NFA a
+	for x := 0; x < asize; x++ {
+		for y := 0; y < asize; y++ {
+			c.Transitions[x][y] = a.Transitions[x][y]
+		}
+	}
+	// set out transition
+	c.Transitions[asize][asize+1] = []rune{a.Out}
+
+	// copy in NFA b
+	for x := 0; x < bsize; x++ {
+		for y := 0; y < bsize; y++ {
+			c.Transitions[x+asize][y+asize] = append(c.Transitions[x+asize][y+asize],
+				b.Transitions[x][y]...)
+		}
+	}
+	// set out transition
+	c.Out = b.Out
+
+	return c
+}
+
+func (a NFA) Beside(b NFA) (c NFA) {
+
 }
