@@ -1,6 +1,11 @@
 package main
 
-import "errors"
+import (
+	"errors"
+	"strings"
+
+	"strconv"
+)
 
 type RegexType uint
 
@@ -68,7 +73,8 @@ func (r Regex) NFA() (nfa NFA, err error) {
 		return nfa, err
 	}
 
-	switch symbols[1].Type {
+	second := symbols[1]
+	switch second.Type {
 	case CHAR, ANYOF, GROUP, RANGE:
 		// a -> b ->
 		nfa = a.Append(b)
@@ -76,9 +82,28 @@ func (r Regex) NFA() (nfa NFA, err error) {
 		//      a
 		// 0 -<   >- 0 ->
 		//	    b
-		// TODO
+		nfa = a.Beside(b)
 	case QUANTITY:
-		// TODO
+		if strings.Contains(second.Value, "-") { // Range
+			parts := strings.Split(second.Value, "-")
+			if len(parts) != 2 {
+				return nfa, errors.New("Invalid range: " + second.Value)
+			}
+			// TODO
+		} else if _, err := strconv.Atoi(second.Value); err == nil { // Single max value
+			// TODO
+		} else {
+			switch second.Value {
+			case "*":
+				nfa = a.ZeroOrMany()
+			case "?":
+				nfa = a.ZeroOrOne()
+			case "+":
+				nfa = a.OneOrMany()
+			default:
+				return nfa, errors.New("Invalid quantity: " + second.Value)
+			}
+		}
 	}
 
 	return nfa, err
@@ -191,43 +216,112 @@ func inParens(str []rune) (length int, err error) {
 	return length - 2, nil
 }
 
-// Append appends a NFA 'b' to a NFA 'a'.
-// a -> b ->
+// Append appends NFA b to NFA a.
 func (a NFA) Append(b NFA) (c NFA) {
 	// make an empty graph of the right size
 	asize := len(a.Transitions)
 	bsize := len(b.Transitions)
 	csize := asize + bsize
-	c = NFA{
-		Transitions: make([][][]rune, csize),
-		Out:         '\x00',
-	}
-	for i, _ := range c.Transitions {
-		c.Transitions[i] = make([][]rune, csize)
-	}
+	c = newNFA(csize)
 
 	// copy in NFA a
-	for x := 0; x < asize; x++ {
-		for y := 0; y < asize; y++ {
-			c.Transitions[x][y] = a.Transitions[x][y]
-		}
-	}
-	// set out transition
-	c.Transitions[asize][asize+1] = []rune{a.Out}
+	c.paste(a, 0, 0)
+	c.Transitions[asize][asize+1] = append(c.Transitions[asize][asize+1], a.Out)
 
 	// copy in NFA b
-	for x := 0; x < bsize; x++ {
-		for y := 0; y < bsize; y++ {
-			c.Transitions[x+asize][y+asize] = append(c.Transitions[x+asize][y+asize],
-				b.Transitions[x][y]...)
-		}
-	}
-	// set out transition
+	c.paste(b, asize, asize)
 	c.Out = b.Out
 
 	return c
 }
 
+// Beside puts NFA a and b next to each other in NFA c.
 func (a NFA) Beside(b NFA) (c NFA) {
+	// make an empty graph of the right size
+	asize := len(a.Transitions)
+	bsize := len(b.Transitions)
+	csize := asize + bsize + 2
+	c = newNFA(csize)
 
+	// copy in NFA a
+	c.paste(a, 1, 1)
+	c.Transitions[asize+1][csize] = append(c.Transitions[asize+1][csize], a.Out)
+
+	// copy in NFA b
+	bLoc := 1 + asize
+	c.paste(b, bLoc, bLoc)
+	c.Transitions[bLoc+bsize][csize] = append(c.Transitions[bLoc][csize], a.Out)
+
+	return c
+}
+
+func (a NFA) ZeroOrMany() (c NFA) {
+	// make an empty graph of the right size
+	asize := len(a.Transitions)
+	csize := asize + 2
+	c = newNFA(csize)
+
+	// copy in NFA a
+	c.paste(a, 1, 1)
+
+	// make transitions
+	c.Transitions[0][asize+2] = []rune{'\x00'}
+	c.Transitions[asize+1][asize+2] = []rune{a.Out}
+	c.Transitions[asize+2][1] = []rune{'\x00'}
+
+	return c
+}
+
+func (a NFA) OneOrMany() (c NFA) {
+	// make an empty graph of the right size
+	asize := len(a.Transitions)
+	csize := asize
+	c = newNFA(csize)
+
+	// copy in NFA a
+	c.paste(a, 0, 0)
+
+	// make transitions
+	c.Transitions[asize-1][0] = append(c.Transitions[asize-1][0], '\x00')
+
+	return c
+}
+
+func (a NFA) ZeroOrOne() (c NFA) {
+	// make an empty graph of the right size
+	asize := len(a.Transitions)
+	csize := asize
+	c = newNFA(csize)
+
+	// copy in NFA a
+	c.paste(a, 0, 0)
+
+	// make transitions
+	c.Transitions[0][asize-1] = append(c.Transitions[0][asize-1], '\x00')
+
+	return c
+}
+
+func newNFA(size int) NFA {
+	result := NFA{
+		Transitions: make([][][]rune, size),
+		Out:         '\x00',
+	}
+	for i, _ := range result.Transitions {
+		result.Transitions[i] = make([][]rune, size)
+	}
+
+	return result
+}
+
+// paste pastes an NFA into another. It does not check for
+// out of bounds errors and will panic if one occurs.
+// It also does not handle Out transitions.
+func (a *NFA) paste(b NFA, x, y int) {
+	bsize := len(b.Transitions)
+	for cx := 0; cx < bsize; x++ {
+		for cy := 0; cy < bsize; y++ {
+			a.Transitions[cx+x][cy+y] = b.Transitions[x][y]
+		}
+	}
 }
