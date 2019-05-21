@@ -43,20 +43,23 @@ type DFA NFA
 // NFA converts a regular expression to it's NFA
 // equivalent.
 func (r Regex) NFA() (nfa NFA, err error) {
-	nfa = NFA{
-		Transitions: [][][]rune{[][]rune{[]rune{}}},
-	}
+	nfa = newNFA(0)
 
 	symbols, err := symbols(r)
 	if err != nil {
 		return nfa, err
 	}
 
+	if len(symbols) == 0 {
+		return newNFA(0), nil
+	}
+
 	if len(symbols) == 1 {
 		symbol := symbols[0]
-		if symbol.Type != CHAR {
-			return nfa, errors.New("Single non-char regex")
-		}
+		// TODO check if nessessary
+		//if symbol.Type != CHAR {
+		//return nfa, errors.New("Single non-char regex: " + symbol.Value)
+		//}
 
 		nfa.Out = []rune(symbol.Value)[0]
 
@@ -82,7 +85,16 @@ func (r Regex) NFA() (nfa NFA, err error) {
 		//      a
 		// 0 -<   >- 0 ->
 		//	    b
-		nfa = a.Beside(b)
+		if len(symbols) > 3 {
+			return nfa, errors.New("Or without second possibility: " + symbols[0].Value + second.Value)
+		}
+
+		c, err := Regex(symbols[2].Value).NFA()
+		if err != nil {
+			return nfa, err
+		}
+
+		nfa = a.Beside(c)
 	case QUANTITY:
 		if strings.Contains(second.Value, "-") { // Range
 			parts := strings.Split(second.Value, "-")
@@ -221,7 +233,7 @@ func (a NFA) Append(b NFA) (c NFA) {
 	// make an empty graph of the right size
 	asize := len(a.Transitions)
 	bsize := len(b.Transitions)
-	csize := asize + bsize
+	csize := asize + bsize + 2
 	c = newNFA(csize)
 
 	// copy in NFA a
@@ -229,7 +241,7 @@ func (a NFA) Append(b NFA) (c NFA) {
 	c.Transitions[asize][asize+1] = append(c.Transitions[asize][asize+1], a.Out)
 
 	// copy in NFA b
-	c.paste(b, asize, asize)
+	c.paste(b, asize+1, asize+1)
 	c.Out = b.Out
 
 	return c
@@ -240,17 +252,20 @@ func (a NFA) Beside(b NFA) (c NFA) {
 	// make an empty graph of the right size
 	asize := len(a.Transitions)
 	bsize := len(b.Transitions)
-	csize := asize + bsize + 2
+	csize := asize + bsize + 4
 	c = newNFA(csize)
+
+	bLoc := 2 + asize
+	c.Transitions[0][1] = []rune{'\x00'}
+	c.Transitions[0][bLoc] = []rune{'\x00'}
 
 	// copy in NFA a
 	c.paste(a, 1, 1)
-	c.Transitions[asize+1][csize] = append(c.Transitions[asize+1][csize], a.Out)
+	c.Transitions[asize+1][csize-1] = append(c.Transitions[asize+1][csize-1], a.Out)
 
 	// copy in NFA b
-	bLoc := 1 + asize
 	c.paste(b, bLoc, bLoc)
-	c.Transitions[bLoc+bsize][csize] = append(c.Transitions[bLoc][csize], a.Out)
+	c.Transitions[bLoc+bsize][csize-1] = append(c.Transitions[bLoc+bsize][csize-1], b.Out)
 
 	return c
 }
@@ -258,7 +273,7 @@ func (a NFA) Beside(b NFA) (c NFA) {
 func (a NFA) ZeroOrMany() (c NFA) {
 	// make an empty graph of the right size
 	asize := len(a.Transitions)
-	csize := asize + 2
+	csize := asize + 3
 	c = newNFA(csize)
 
 	// copy in NFA a
@@ -275,14 +290,15 @@ func (a NFA) ZeroOrMany() (c NFA) {
 func (a NFA) OneOrMany() (c NFA) {
 	// make an empty graph of the right size
 	asize := len(a.Transitions)
-	csize := asize
+	csize := asize + 2
 	c = newNFA(csize)
 
 	// copy in NFA a
 	c.paste(a, 0, 0)
 
 	// make transitions
-	c.Transitions[asize-1][0] = append(c.Transitions[asize-1][0], '\x00')
+	c.Transitions[asize][asize+1] = append(c.Transitions[asize][0], a.Out)
+	c.Transitions[asize+1][0] = []rune{'\x00'}
 
 	return c
 }
@@ -290,14 +306,15 @@ func (a NFA) OneOrMany() (c NFA) {
 func (a NFA) ZeroOrOne() (c NFA) {
 	// make an empty graph of the right size
 	asize := len(a.Transitions)
-	csize := asize
+	csize := asize + 1
 	c = newNFA(csize)
 
 	// copy in NFA a
 	c.paste(a, 0, 0)
+	c.Out = a.Out
 
 	// make transitions
-	c.Transitions[0][asize-1] = append(c.Transitions[0][asize-1], '\x00')
+	c.Transitions[0][asize] = append(c.Transitions[0][asize], '\x00')
 
 	return c
 }
