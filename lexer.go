@@ -2,9 +2,6 @@ package main
 
 import (
 	"errors"
-	"strings"
-
-	"strconv"
 )
 
 type RegexType uint
@@ -12,7 +9,6 @@ type RegexType uint
 const (
 	GROUP = RegexType(iota)
 	ANYOF
-	RANGE
 	QUANTITY
 	OR
 	CHAR
@@ -30,180 +26,165 @@ type Regex string
 // The NULL byte is used as epsilon (\x00)
 // The starting state is 0. It also has a
 // labeled out-transition from the last state (len(NFA)).
-
 type NFA struct {
 	Transitions [][][]rune
 	Out         rune
 }
 
 // DFA stands for Deterministic Finite Automata
-// It's a NFA without epsilon transitions
-type DFA NFA
+// It's a NFA without epsilon transitions and no
+// identically labelled transitions out of the same
+// state.
+type DFA struct {
+	Transitions [][][]rune
+	Accepting   []int
+}
 
 // NFA converts a regular expression to it's NFA
 // equivalent.
 func (r Regex) NFA() (nfa NFA, err error) {
-	nfa = newNFA(0)
 
-	symbols, err := symbols(r)
-	if err != nil {
-		return nfa, err
+	if len(r) == 1 {
+		return NFA{
+			Transitions: [][][]rune{},
+			Out:         []rune(r)[0],
+		}, nil
 	}
 
-	if len(symbols) == 0 {
-		return newNFA(0), nil
+	stack := []NFA{}
+
+	// anonymous stack functions
+	push := func(nfa NFA) {
+		stack = append(stack, nfa)
+	}
+	pop := func() NFA {
+		last := len(stack) - 1
+		val := stack[last]
+		stack = stack[:last]
+		return val
 	}
 
-	if len(symbols) == 1 {
-		symbol := symbols[0]
-		// TODO check if nessessary
-		//if symbol.Type != CHAR {
-		//return nfa, errors.New("Single non-char regex: " + symbol.Value)
-		//}
+	var lastWasOr bool
+	var sym RegexSymbol
 
-		nfa.Out = []rune(symbol.Value)[0]
-
-		return nfa, nil
-	}
-
-	a, err := Regex(symbols[0].Value).NFA()
-	if err != nil {
-		return nfa, err
-	}
-
-	b, err := Regex(symbols[1].Value).NFA()
-	if err != nil {
-		return nfa, err
-	}
-
-	second := symbols[1]
-	switch second.Type {
-	case CHAR, ANYOF, GROUP, RANGE:
-		// a -> b ->
-		nfa = a.Append(b)
-	case OR:
-		//      a
-		// 0 -<   >- 0 ->
-		//	    b
-		if len(symbols) > 3 {
-			return nfa, errors.New("Or without second possibility: " + symbols[0].Value + second.Value)
-		}
-
-		c, err := Regex(symbols[2].Value).NFA()
+	for len(r) > 0 {
+		sym, r, err = r.nextSymbol()
 		if err != nil {
 			return nfa, err
 		}
 
-		nfa = a.Beside(c)
-	case QUANTITY:
-		if strings.Contains(second.Value, "-") { // Range
-			parts := strings.Split(second.Value, "-")
-			if len(parts) != 2 {
-				return nfa, errors.New("Invalid range: " + second.Value)
-			}
-			// TODO
-		} else if _, err := strconv.Atoi(second.Value); err == nil { // Single max value
-			// TODO
-		} else {
-			switch second.Value {
-			case "*":
-				nfa = a.ZeroOrMany()
-			case "?":
-				nfa = a.ZeroOrOne()
+		switch sym.Type {
+		case QUANTITY:
+			switch sym.Value {
 			case "+":
-				nfa = a.OneOrMany()
+				push(pop().OneOrMany())
+			case "*":
+				push(pop().ZeroOrMany())
+			case "?":
+				push(pop().ZeroOrOne())
 			default:
-				return nfa, errors.New("Invalid quantity: " + second.Value)
+				//TODO
+			}
+		case ANYOF:
+		case OR:
+			// let the next symbol handle the 'beside' composition
+			lastWasOr = true
+		default:
+			nfa, err := Regex(sym.Value).NFA()
+			if err != nil {
+				return nfa, err
+			}
+
+			// if the last symbol was an or, put this symbol beside
+			// the last one
+			if lastWasOr {
+				push(pop().Beside(nfa))
+				lastWasOr = false
+			} else {
+				push(nfa)
 			}
 		}
 	}
 
-	return nfa, err
-}
-
-func symbols(r Regex) (symbols []RegexSymbol, err error) {
-	regexRunes := []rune(r)
-	symbols = []RegexSymbol{}
-	for len(regexRunes) > 0 {
-		switch regexRunes[0] {
-		case '(': // Groups
-			length, err := inParens(regexRunes)
-			if err != nil {
-				return symbols, err
-			}
-
-			symbols = append(symbols, RegexSymbol{
-				Type:  GROUP,
-				Value: string(regexRunes[1 : length+1]),
-			})
-
-			regexRunes = regexRunes[length:]
-		case '[': // Any of chars
-			length, err := inParens(regexRunes)
-			if err != nil {
-				return symbols, err
-			}
-
-			symbols = append(symbols, RegexSymbol{
-				Type:  ANYOF,
-				Value: string(regexRunes[1 : length+1]),
-			})
-
-			regexRunes = regexRunes[length:]
-		case '.': // Any character
-			symbols = append(symbols, RegexSymbol{
-				Type:  ANYOF,
-				Value: ".",
-			})
-
-			regexRunes = regexRunes[1:]
-		case '\\': // Escape
-			symbols = append(symbols, RegexSymbol{
-				Type:  CHAR,
-				Value: string(regexRunes[1]),
-			})
-			regexRunes = regexRunes[2:]
-		case '{': // Quantity
-			length, err := inParens(regexRunes)
-			if err != nil {
-				return symbols, err
-			}
-
-			symbols = append(symbols, RegexSymbol{
-				Type:  QUANTITY,
-				Value: string(regexRunes[1 : length+1]),
-			})
-
-			regexRunes = regexRunes[length:]
-		case '+', '?', '*': // Quantity shorthands
-			symbols = append(symbols, RegexSymbol{
-				Type:  QUANTITY,
-				Value: string(regexRunes[0]),
-			})
-
-			regexRunes = regexRunes[1:]
-		case '|':
-			symbols = append(symbols, RegexSymbol{
-				Type:  OR,
-				Value: "|",
-			})
-
-			regexRunes = regexRunes[1:]
-		default:
-			symbols = append(symbols, RegexSymbol{
-				Type:  CHAR,
-				Value: string(regexRunes[0]),
-			})
-			regexRunes = regexRunes[1:]
-		}
+	// Compose all loose items
+	nfa = newNFA(0)
+	for _, subnfa := range stack {
+		nfa = nfa.Append(subnfa)
 	}
 
 	return
 }
 
+func (r Regex) nextSymbol() (symbol RegexSymbol, cut Regex, err error) {
+	regexRunes := []rune(r)
+	if len(regexRunes) > 0 {
+		switch regexRunes[0] {
+		case '(': // Groups
+			length, err := inParens(regexRunes)
+			if err != nil {
+				return symbol, r, err
+			}
+
+			return RegexSymbol{
+				Type:  GROUP,
+				Value: string(regexRunes[1 : length+1]),
+			}, r[length+1:], nil
+		case '[': // Any of chars
+			length, err := inParens(regexRunes)
+			if err != nil {
+				return symbol, r, err
+			}
+
+			return RegexSymbol{
+				Type:  ANYOF,
+				Value: string(regexRunes[1 : length+1]),
+			}, r[length+1:], nil
+		case '.': // Any character
+			return RegexSymbol{
+				Type:  ANYOF,
+				Value: ".",
+			}, r[1:], nil
+		case '\\': // Escape
+			return RegexSymbol{
+				Type:  CHAR,
+				Value: string(regexRunes[1]),
+			}, r[2:], nil
+		case '{': // Quantity
+			length, err := inParens(regexRunes)
+			if err != nil {
+				return symbol, r, err
+			}
+
+			return RegexSymbol{
+				Type:  QUANTITY,
+				Value: string(regexRunes[1 : length+1]),
+			}, r[length:], nil
+
+		case '+', '?', '*': // Quantity shorthands
+			return RegexSymbol{
+				Type:  QUANTITY,
+				Value: string(regexRunes[0]),
+			}, r[1:], nil
+		case '|':
+			return RegexSymbol{
+				Type:  OR,
+				Value: "|",
+			}, r[1:], nil
+		default:
+			return RegexSymbol{
+				Type:  CHAR,
+				Value: string(regexRunes[0]),
+			}, r[1:], nil
+		}
+	}
+
+	return symbol, r, errors.New("Requested next symbol when there was no symbol in regex")
+}
+
 func inParens(str []rune) (length int, err error) {
 	// use a simple stack to check when the parenthesis are closed
-	parens := []rune{str[0]}
+	// start with the closing version of the parenthesis
+	parens := []rune{str[0] + 1}
 	length = 1
 	maxlength := len(str)
 	for len(parens) > 0 {
@@ -214,7 +195,8 @@ func inParens(str []rune) (length int, err error) {
 		char := str[length]
 		switch char {
 		case '(', '[', '{':
-			parens = append(parens, char)
+			// append the closing version of the parenthesis
+			parens = append(parens, char+1)
 		case ')', ']', '}':
 			if parens[len(parens)-1] == char {
 				parens = parens[:len(parens)-1]
@@ -336,9 +318,9 @@ func newNFA(size int) NFA {
 // It also does not handle Out transitions.
 func (a *NFA) paste(b NFA, x, y int) {
 	bsize := len(b.Transitions)
-	for cx := 0; cx < bsize; x++ {
-		for cy := 0; cy < bsize; y++ {
-			a.Transitions[cx+x][cy+y] = b.Transitions[x][y]
+	for bx := 0; bx < bsize; bx++ {
+		for by := 0; by < bsize; by++ {
+			a.Transitions[bx+x][by+y] = b.Transitions[bx][by]
 		}
 	}
 }

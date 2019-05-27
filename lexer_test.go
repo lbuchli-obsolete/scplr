@@ -10,16 +10,18 @@ var mregexToNFA = map[Regex]NFA{
 	},
 	"ab": NFA{
 		Transitions: [][][]rune{
-			[][]rune{
-				[]rune{},
-				[]rune{'a'},
-			},
-			[][]rune{
-				[]rune{},
-				[]rune{},
-			},
+			[][]rune{[]rune{}, []rune{'a'}},
+			[][]rune{[]rune{}, []rune{}},
 		},
 		Out: 'b',
+	},
+	"abc": NFA{
+		Transitions: [][][]rune{
+			[][]rune{[]rune{}, []rune{'a'}, []rune{}},
+			[][]rune{[]rune{}, []rune{}, []rune{'b'}},
+			[][]rune{[]rune{}, []rune{}, []rune{}},
+		},
+		Out: 'c',
 	},
 	"a|b": NFA{
 		Transitions: [][][]rune{
@@ -59,9 +61,11 @@ var mregexToNFA = map[Regex]NFA{
 	},
 	"a?": NFA{
 		Transitions: [][][]rune{
-			[][]rune{[]rune{'\x00'}},
+			[][]rune{[]rune{}, []rune{'\x00'}, []rune{'\x00'}},
+			[][]rune{[]rune{}, []rune{}, []rune{'a'}},
+			[][]rune{[]rune{}, []rune{}, []rune{}},
 		},
-		Out: 'a',
+		Out: '\x00',
 	},
 }
 
@@ -84,8 +88,8 @@ func TestRegexToNFA(t *testing.T) {
 		}
 
 		if !testEq(result.Transitions, nfa.Transitions) || result.Out != nfa.Out {
-			t.Fatalf("Unexpected result while calculating NFA of '%s':\nGot: %v\nExpected: %v\n",
-				regex, result, nfa)
+			t.Fatalf("Unexpected result while calculating NFA of '%s':\nGot:\n%v\n\nExpected:\n%v\n",
+				regex, prettySPrint(result), prettySPrint(nfa))
 		}
 	}
 }
@@ -125,4 +129,17 @@ func testEq(a, b [][][]rune) bool {
 	}
 
 	return true
+}
+
+func prettySPrint(nfa NFA) string {
+	result := ""
+	for y := 0; y < len(nfa.Transitions); y++ {
+		for x := 0; x < len(nfa.Transitions[y]); x++ {
+			result += "'" + string(nfa.Transitions[x][y]) + "'\t"
+		}
+		result += "\n"
+	}
+
+	result += "-> " + string(nfa.Out)
+	return result
 }
