@@ -7,31 +7,31 @@ var mTestRegex = map[string]map[string]string{
 		"a": "a",
 		"b": "",
 	},
-	"ab": map[string]string{
-		"ab":  "ab",
-		"abc": "ab",
-		"ba":  "",
-	},
-	"a?": map[string]string{
-		"a": "a",
-		"":  "",
-		"b": "",
-	},
-	"a+": map[string]string{
-		"":   "",
-		"a":  "a",
-		"aa": "aa",
-	},
-	"a*": map[string]string{
-		"":   "",
-		"a":  "a",
-		"aa": "aa",
-	},
-	"a|b": map[string]string{
-		"a":  "a",
-		"b":  "b",
-		"ab": "a",
-	},
+	//"ab": map[string]string{
+	//"ab":  "ab",
+	//"abc": "ab",
+	//"ba":  "",
+	//},
+	//"a?": map[string]string{
+	//"a": "a",
+	//"":  "",
+	//"b": "",
+	//},
+	//"a+": map[string]string{
+	//"":   "",
+	//"a":  "a",
+	//"aa": "aa",
+	//},
+	//"a*": map[string]string{
+	//"":   "",
+	//"a":  "a",
+	//"aa": "aa",
+	//},
+	//"a|b": map[string]string{
+	//"a":  "a",
+	//"b":  "b",
+	//"ab": "a",
+	//},
 }
 
 func TestRegex(t *testing.T) {

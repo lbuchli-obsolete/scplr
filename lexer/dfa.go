@@ -56,8 +56,8 @@ func FromRegex(regex string) *DFAState {
 		case '(':
 			// TODO
 		case '|':
-			last := pop()
-
+			//last := pop()
+			// TODO
 		case '\\':
 			index++
 			last := peak()
@@ -66,19 +66,25 @@ func FromRegex(regex string) *DFAState {
 			last.link(next)
 			push(next)
 		default:
-			last := peak()
-			next := newDFAState()
-			next.ToThis = char
-			last.link(next)
-			push(next)
+			if len(stack) > 0 {
+				last := peak()
+				next := newDFAState()
+				next.ToThis = char
+				last.link(next)
+				push(next)
+			} else {
+				next := newDFAState()
+				next.ToThis = char
+				push(next)
+			}
 		}
 
 		index++
 	}
 
-	previous.Accepting = true
+	peak().Accepting = true
 
-	return result
+	return stack[0]
 }
 
 func newDFAState() *DFAState {
@@ -98,22 +104,20 @@ func (ds *DFAState) Match(str string) (match bool, strpart string) {
 	length := len(runes)
 	lastaccepted := -1
 	for index < length {
-		var next *DFAState
-
-		if nextLabeled, ok := current.Next[runes[index]]; ok {
-			next = nextLabeled
-			index++
-		} else if nextUnlabeled, ok := current.Next['\x00']; ok {
-			next = nextUnlabeled
-		} else {
-			break
-		}
-
-		if next.Accepting {
+		if current.Accepting {
 			lastaccepted = index
 		}
 
-		current = next
+		for _, next := range current.Next {
+			if next.ToThis == runes[index] { // labelled
+				current = next
+				index++
+				break
+			} else if next.ToThis == '\x00' { // unlabeled
+				current = next
+				// don't break; instead look for other possible labelled transitions first
+			}
+		}
 	}
 
 	if lastaccepted >= 0 {
