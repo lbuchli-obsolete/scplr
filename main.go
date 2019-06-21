@@ -1,7 +1,13 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/lbuchli/scplr/lexer"
+)
 
 func main() {
-	fmt.Println(Regex("a*").NFA())
+	matched, strpart := lexer.FromRegex("a?").Match("a")
+	fmt.Printf("Matched: %v\n", matched)
+	fmt.Printf("Part:    '%s'\n", strpart)
 }

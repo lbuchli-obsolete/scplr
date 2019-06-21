@@ -1,48 +1,37 @@
 package lexer
 
-import "testing"
+import (
+	"testing"
+)
 
-var mTestRegex = map[string]map[string]string{
-	"a": map[string]string{
-		"a": "a",
-		"b": "",
-	},
-	//"ab": map[string]string{
-	//"ab":  "ab",
-	//"abc": "ab",
-	//"ba":  "",
-	//},
-	//"a?": map[string]string{
-	//"a": "a",
-	//"":  "",
-	//"b": "",
-	//},
-	//"a+": map[string]string{
-	//"":   "",
-	//"a":  "a",
-	//"aa": "aa",
-	//},
-	//"a*": map[string]string{
-	//"":   "",
-	//"a":  "a",
-	//"aa": "aa",
-	//},
-	//"a|b": map[string]string{
-	//"a":  "a",
-	//"b":  "b",
-	//"ab": "a",
-	//},
+func TestRegexPlain(t *testing.T) {
+	dfa := FromRegex("abc")
+	matched, strpart := dfa.Match("abc")
+	if strpart != "abc" || !matched {
+		t.Fatalf("Regex 'abc' matched 'abc' wrongly as '%s'. Correct would be: 'abc'", strpart)
+	}
 }
 
-func TestRegex(t *testing.T) {
-	for regex, tests := range mTestRegex {
-		dfa := FromRegex(regex)
-		for str, match := range tests {
-			_, result := dfa.Match(str)
-			if result != match {
-				t.Fatalf("Regex '%s' matched '%s' wrongly as '%s'. Correct would be: '%s'",
-					regex, str, result, match)
-			}
-		}
+func TestRegexOneOrMany(t *testing.T) {
+	dfa := FromRegex("a+")
+	matched, strpart := dfa.Match("aaaaa")
+	if strpart != "aaaaa" || !matched {
+		t.Fatalf("Regex 'a+' matched 'aaaaa' wrongly as '%s'. Correct would be: 'aaaaa'", strpart)
+	}
+}
+
+func TestRegexZeroOrOne(t *testing.T) {
+	dfa := FromRegex("a?")
+	matched, strpart := dfa.Match("")
+	if strpart != "" || !matched {
+		t.Fatalf("Regex 'a?' matched '' wrongly as '%s'. Correct would be: ''", strpart)
+	}
+}
+
+func TestRegexZeroOrMany(t *testing.T) {
+	dfa := FromRegex("a*")
+	matched, strpart := dfa.Match("aaaaaaa")
+	if strpart != "aaaaaaa" || !matched {
+		t.Fatalf("Regex 'a*' matched 'aaaaaaa' wrongly as '%s'. Correct would be: 'aaaaaaa'", strpart)
 	}
 }

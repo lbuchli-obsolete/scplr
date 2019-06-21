@@ -6,12 +6,14 @@ type DFAState struct {
 	Accepting bool
 }
 
-func FromRegex(regex string) *DFAState {
+type Regex DFAState
+
+func FromRegex(regex string) Regex {
 	runes := []rune(regex)
 	index := 0
 	length := len(runes)
 
-	stack := []*DFAState{}
+	stack := []*DFAState{newDFAState()}
 
 	// Anonymous stack functions
 	push := func(state *DFAState) {
@@ -34,6 +36,7 @@ func FromRegex(regex string) *DFAState {
 			last := peak()
 			next := newDFAState()
 			next.ToThis = '\x00'
+			last.link(next)
 			next.link(last)
 			push(next)
 		case '*':
@@ -66,17 +69,11 @@ func FromRegex(regex string) *DFAState {
 			last.link(next)
 			push(next)
 		default:
-			if len(stack) > 0 {
-				last := peak()
-				next := newDFAState()
-				next.ToThis = char
-				last.link(next)
-				push(next)
-			} else {
-				next := newDFAState()
-				next.ToThis = char
-				push(next)
-			}
+			last := peak()
+			next := newDFAState()
+			next.ToThis = char
+			last.link(next)
+			push(next)
 		}
 
 		index++
@@ -84,7 +81,7 @@ func FromRegex(regex string) *DFAState {
 
 	peak().Accepting = true
 
-	return stack[0]
+	return Regex(*stack[0])
 }
 
 func newDFAState() *DFAState {
@@ -97,13 +94,16 @@ func (ds *DFAState) link(state *DFAState) {
 	ds.Next = append(ds.Next, state)
 }
 
-func (ds *DFAState) Match(str string) (match bool, strpart string) {
+func (r Regex) Match(str string) (match bool, strpart string) {
 	runes := []rune(str)
-	current := ds
+	ds := DFAState(r)
+	current := &ds
 	index := 0
 	length := len(runes)
 	lastaccepted := -1
-	for index < length {
+	nextIterationPossible := true
+	for nextIterationPossible && index < length {
+		nextIterationPossible = false
 		if current.Accepting {
 			lastaccepted = index
 		}
@@ -112,16 +112,18 @@ func (ds *DFAState) Match(str string) (match bool, strpart string) {
 			if next.ToThis == runes[index] { // labelled
 				current = next
 				index++
+				nextIterationPossible = true
 				break
-			} else if next.ToThis == '\x00' { // unlabeled
+			} else if next.ToThis == '\x00' && next != current { // unlabeled
 				current = next
+				nextIterationPossible = true
 				// don't break; instead look for other possible labelled transitions first
 			}
 		}
 	}
 
 	if lastaccepted >= 0 {
-		return true, string(runes[:lastaccepted])
+		return true, string(runes[:lastaccepted+1])
 	} else {
 		return false, ""
 	}
